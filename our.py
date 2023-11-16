@@ -38,34 +38,7 @@ def start():
         x_std = np.hstack(np.around(x_std,2))
         return x_mean, x_std
         
-    dx = [-1, 0, 1, 0]
-    dy = [0, 1, 0, -1]
 
-    def is_valid_pixel(x, y, rows, cols):
-        return 0 <= x < cols and 0 <= y < rows
-
-    # Perform BFS to obtain the edge points
-    def bfs(image, start_x, start_y):
-        
-        edge_points = []
-
-        queue = deque()
-        queue.append((start_x, start_y))
-        visited[start_y, start_x] = 255
-
-        while queue:
-            x, y = queue.popleft()
-            for i in range(4):
-                nx, ny = x + dx[i], y + dy[i]                
-                if is_valid_pixel(nx, ny, rows, cols) and visited[ny, nx] < 100:
-                    visited[ny, nx] = 255
-                    
-                    if image[ny, nx] == 255:
-                        edge_points.append((nx, ny))
-                    else:
-                        queue.append((nx, ny))
-        return edge_points
-    
     while True:
         result = background.copy()
         
@@ -98,7 +71,21 @@ def start():
 
         s = videoFrame
         s = cv2.cvtColor(s,cv2.COLOR_BGR2LAB)
-        
+        kernel = np.ones((10, 10), np.uint8)
+        visited =  cv2.dilate(visited, kernel, iterations=1)
+        visited =  cv2.erode(visited, kernel, iterations=1)
+
+        for i in range(rows):
+            for j in range(cols):
+                if visited[j][i] == 255:
+                    s[j, i] = result[j, i]
+        cv2.imshow('result', s)
+
+        output_video.write(s)
+        output_video.write(s)
+        for j in range(2):
+            capVideo.read()
+        if cv2.waitKey(1) & 0xFF == ord('q'):
         s_mean, s_std = get_mean_and_std(s)
         t_mean, t_std = get_mean_and_std(t)
         height, width, channel = s.shape
