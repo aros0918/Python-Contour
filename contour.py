@@ -1,226 +1,90 @@
 
 import cv2
-from PIL import Image
+import os
+import shutil
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QWidget, QFileDialog, QVBoxLayout, QPushButton
-from collections import deque
-import rembg
-def start():
-    file1 = file_selector1.filename
-    file2 = file_selector2.filename
-    file3 = file_selector3.filename
-    def imagebright(image):
-        average_r = np.mean(image[:, :, 2])
-        average_g = np.mean(image[:, :, 1])
-        average_b = np.mean(image[:, :, 0])
+import glob
+import time
+import argparse
 
-        average_intensity = (average_r + average_g + average_b) / 3
-        if average_intensity > 110:
-            return True
-        else:
-            return False
-    capVideo = cv2.VideoCapture(file1)
-    fps = capVideo.get(cv2.CAP_PROP_FPS)
-    frame_width = int(capVideo.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(capVideo.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    output_video = cv2.VideoWriter('output.mp4', fourcc, fps, (frame_width, frame_height))
-    t = cv2.imread(file2)
-    t = cv2.resize(t, (frame_width, frame_height))
-    background = cv2.imread(file3)
-    background = cv2.resize(background, (frame_width, frame_height))
-    t = cv2.cvtColor(t,cv2.COLOR_BGR2LAB)
-    check = imagebright(t)
+parser = argparse.ArgumentParser()
+parser.add_argument("-l", "--logo", type=str, help="The logo png file.")
+args = parser.parse_args()
 
-    def get_mean_and_std(x):
-        x_mean, x_std = cv2.meanStdDev(x)
-        x_mean = np.hstack(np.around(x_mean,2))
-        x_std = np.hstack(np.around(x_std,2))
-        return x_mean, x_std
-        
-    dx = [-1, 0, 1, 0]
-    dy = [0, 1, 0, -1]
+if os.path.exists('scene'):
+    shutil.rmtree('scene')
+os.mkdir('scene')
 
-    def is_valid_pixel(x, y, rows, cols):
-        return 0 <= x < cols and 0 <= y < rows
+def count_folders_with_prefix(prefix):
+    current_directory = os.getcwd()
+    folder_count = 0
 
-    # Perform BFS to obtain the edge points
-    def bfs(image, start_x, start_y):
-        
-        edge_points = []
+    for item in os.listdir(current_directory):
+        if os.path.isdir(item) and item.startswith(prefix):
+            folder_count += 1
 
-        queue = deque()
-        queue.append((start_x, start_y))
-        visited[start_y, start_x] = 255
+    return folder_count
 
-        while queue:
-            x, y = queue.popleft()
-            for i in range(4):
-                nx, ny = x + dx[i], y + dy[i]                
-                if is_valid_pixel(nx, ny, rows, cols) and visited[ny, nx] < 100:
-                    visited[ny, nx] = 255
-                    
-                    if image[ny, nx] == 255:
-                        edge_points.append((nx, ny))
-                    else:
-                        queue.append((nx, ny))
-        return edge_points
-    
-    while True:
-        result = background.copy()
-        
-        ret, videoFrame = capVideo.read()    
-        
-        if not ret:
-            break
-        video = videoFrame.copy()
-        rows, cols = videoFrame.shape[:2]
-        video = rembg.remove(video)
-        gray = cv2.cvtColor(video, cv2.COLOR_BGR2GRAY)
-        height, width = gray.shape
-        cv2.imshow("je", gray)
-       
-        edges1 = cv2.Canny(gray, 50, 100)
-        black = cv2.threshold(edges1, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-        black_contours, hierarchy = cv2.findContours(black, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        mask_black = np.zeros_like(gray)
-        mask = np.zeros_like(videoFrame)
-        cv2.drawContours(mask_black, black_contours, -1, (255,255,255), 2)
-    
-        visited = np.zeros((rows, cols), dtype=np.uint8)
-        
-        edge_points = bfs(mask_black, 0, 0)
-        for i in range(rows):
-            for j in range(cols):
-                if visited[j][i] == 255:
-                    
-                    videoFrame[j, i] = (0,0,0)
+prefix = "out_"
+result = count_folders_with_prefix(prefix)
 
-        s = videoFrame
-        s = cv2.cvtColor(s,cv2.COLOR_BGR2LAB)
-        
-        s_mean, s_std = get_mean_and_std(s)
-        t_mean, t_std = get_mean_and_std(t)
-        height, width, channel = s.shape
+if os.path.exists(args.logo):
+    logo = cv2.imread(args.logo)
+    logo = cv2.resize(logo, (logo.shape[1] // 3, logo.shape[0] // 3)) 
+    non_white_pixels = np.where((logo[:, :, :3] != [255, 255, 255]).any(axis=2))
+    logo_int = 1
+else:
+    logo_int = 2
 
-        for i in range(0,height):
-            for j in range(0,width):
-                for k in range(0,channel):
-                    x = s[i,j,k]
-                    x = ((x-s_mean[k])*(t_std[k]/s_std[k]))+t_mean[k]
-                    x = round(x)
-                    x = 0 if x<0 else x
-                    x = 255 if x>255 else x
-                    s[i,j,k] = x
+frame_number = 0
+output_video_path = f'scene/output.mp4'
+png_files = glob.glob("out_0/*.png")
+img = cv2.imread(png_files[0])
+fps = 120
+video = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (img.shape[1], img.shape[0]))
+for i in range(result):
+    png_files = glob.glob("out_" + str(i) + "/*.png") 
+    png_files.sort(key=lambda x: x.split(".")[0])
 
-        s = cv2.cvtColor(s, cv2.COLOR_LAB2BGR)
-        for i in range(s.shape[0]):
-            for j in range(s.shape[1]):
-                r, g, b = s[i, j]
-                if check == False:
-                    if r > 255/2:
-                        r -= 40 * (r - 127)/ 100
-                    else:
-                        r += 40 * (r)/ 100
-                    if g > 255/2:
-                        g -= 40 * (g - 127)/ 100
-                    else:
-                        g += 40 * (g)/ 100
-                    if b > 255/2:
-                        b -= 20 * (b - 127)/ 100
-                    else:
-                        b += 20 * (b)/ 100
-                    s[i, j] = [r, g, b]
-                else:
-                    s[i, j] = [r, g, b]
+    if not png_files:
+        print(f"No PNG files found in out_{i} directory.")
+        continue
 
-        for edge_point in edge_points:
-            cv2.circle(mask, edge_point, radius=5, color=(255,255,255), thickness = -1)
-        blurred = cv2.blur(s, (10, 10), dst=None, borderType=cv2.BORDER_DEFAULT)
-        s = np.where(mask != 0, blurred, s)
+    file_path = f"scene_{i}_animations/1.txt"
+    with open(file_path, 'r') as file:
+        content = file.read()
+        parts = content.split()
+        duration = float(parts[0])
+        frame_count = int(parts[1])
+
+    if frame_count != 0:
+        interval = len(png_files) // frame_count
+    else:
+        interval = 100000
+    match_frame_count = 0
+    if interval == 0:
+        interval = 1     
+    for index in range(len(png_files)):
+        png_file = 'out_' + str(i) + '/' + str(index) + '.png'
+        print(png_file)
+        img = cv2.imread(png_file)
+        if (index + 1) % interval == 0:
+            if match_frame_count != frame_count:
+                os.mkdir('scene/frame_' + str(frame_number))
+                cv2.imwrite('scene/frame_' + str(frame_number) + '/frame.png', img)
+                frame_number += 1
+                match_frame_count += 1
+        if logo_int == 1:
+            img[-logo.shape[0]-30:, -logo.shape[1]-30:][non_white_pixels] = logo[non_white_pixels]
+        video.write(img)
+        video.write(img)
+video.release()
+for i in range(result):
+    shutil.rmtree(f'out_{i}')
+    shutil.rmtree(f'scene_{i}_animations')
+directories = os.listdir()
+for directory in directories:
+    if "animations" in directory:
+        os.remove(directory)
 
 
-        visiting = np.zeros((rows, cols), dtype=np.uint8)
-        final = np.zeros((rows, cols), dtype=np.uint8)
-        kernel = np.ones((10, 10), np.uint8)
-        visited =  cv2.dilate(visited, kernel, iterations=1)
-        visited =  cv2.erode(visited, kernel, iterations=1)
-        # for i in range(rows):
-        #     for j in range(cols):
-        #         if visited[j][i] == 255:
-        #             for k in range(16):
-        #                 nx, ny = i + ddx[k], j + ddy[k]
-        #                 if is_valid_pixel(nx, ny, rows, cols):
-        #                     visiting[ny, nx] = 255
-        # for i in range(rows):
-        #     for j in range(cols):
-        #         if visiting[j][i] != 255:
-        #             for k in range(10):
-        #                 nx, ny = i + dddx[k], j + dddy[k]
-        #                 if is_valid_pixel(nx, ny, rows, cols):
-        #                     final[ny, nx] = 255
-        # for i in range(rows):
-        #     for j in range(cols):
-        #         if final[j][i] != 255:
-        #             s[j, i] = result[j, i]
-        for i in range(rows):
-            for j in range(cols):
-                if visited[j][i] == 255:
-                    s[j, i] = result[j, i]
-        # s = cv2.fastNlMeansDenoisingColored(s,None,20,20,7,21) 
-        cv2.imshow('result', s)
-
-        output_video.write(s)
-        output_video.write(s)
-        for j in range(2):
-            capVideo.read()
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    capVideo.release()
-    output_video.release()
-    cv2.destroyAllWindows()
-
-class FileSelector(QWidget):
-    def __init__(self, title):
-        super().__init__()
-        self.title = title
-        self.initUI()
-
-    def initUI(self):
-        vbox = QVBoxLayout()
-        self.setLayout(vbox)
-
-        button = QPushButton(self.title)
-        button.clicked.connect(self.showDialog)
-        vbox.addWidget(button)
-
-        self.filename = ""
-
-    def showDialog(self):
-        options = QFileDialog.Options()
-        options = QFileDialog.DontUseNativeDialog
-        filename, _ = QFileDialog.getOpenFileName(self, self.title, "", "All Files (*);;Python Files (*.py)", options=options)
-        if filename:
-            self.filename = filename
-
-if __name__ == '__main__':
-    app = QApplication([])
-    file_selector1 = FileSelector("video file")
-    file_selector2 = FileSelector("png file")
-    file_selector3 = FileSelector("background file")
-    # Create an additional button
-    additional_button = QPushButton("start")
-    additional_button.clicked.connect(start)
-    # Add the button to the layout
-    layout = QVBoxLayout()
-    layout.addWidget(file_selector1)
-    layout.addWidget(file_selector2)
-    layout.addWidget(file_selector3)
-    layout.addWidget(additional_button)
-    
-    # Create a main widget and set the layout
-    main_widget = QWidget()
-    main_widget.setLayout(layout)
-    main_widget.show()
-
-    app.exec_()
